@@ -1,0 +1,1452 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>keendns manager</title>
+<style>
+  :root {
+    --bg: #fff; --fg: #1a1a1a; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --danger: #b91c1c; --panel: #f8f9fb; --code: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d; --fg: #e7e9ee; --muted: #9aa1ad; --line: #2c3038;
+      --accent: #5b9cff; --danger: #f87171; --panel: #1d2027; --code: #21252d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+  h2 { font-size: 1rem; margin: 0; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .grow { flex: 1; }
+  main { padding: .7rem .9rem; max-width: 76rem; }
+  #toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+             padding-bottom: .6rem; }
+  #toolbar strong { margin-right: .3rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--line); }
+  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
+       color: var(--muted); font-weight: 600; line-height: 1.2; }
+  tbody tr:hover { background: var(--panel); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .name { font-weight: 600; cursor: pointer; }
+  .name:hover { color: var(--accent); }
+  .shards { color: var(--muted); font-size: .8rem; }
+  .tag { font-size: .72rem; padding: .05rem .35rem; border: 1px solid var(--line);
+         border-radius: 4px; color: var(--muted); margin-left: .3rem; }
+  .full { color: var(--danger); }
+  .sw { appearance: none; -webkit-appearance: none; width: 2.1rem; height: 1.15rem; margin: 0;
+        border-radius: 1rem; background: var(--line); position: relative; cursor: pointer;
+        transition: background .15s; vertical-align: middle; }
+  .sw::after { content: ""; position: absolute; top: .15rem; left: .15rem; width: .85rem;
+               height: .85rem; border-radius: 50%; background: #fff; transition: left .15s;
+               box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+  .sw:checked { background: var(--accent); }
+  .sw:checked::after { left: 1.1rem; }
+  .sw:disabled { opacity: .3; cursor: default; }
+  button { font: inherit; padding: .32rem .7rem; border: 1px solid var(--line);
+           background: var(--panel); color: var(--fg); border-radius: 6px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  #bulk { position: sticky; bottom: 0; display: flex; gap: .45rem; align-items: center;
+          flex-wrap: wrap; padding: .5rem .9rem; border-top: 1px solid var(--line);
+          background: var(--panel); }
+  #bulk[hidden] { display: none; }
+  select, input[type=text], input[type=number] { font: inherit; padding: .28rem .4rem;
+          border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+           color: var(--fg); max-width: 48rem; width: 92vw; padding: 1.1rem; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  textarea { width: 100%; height: 21rem; font: 13px/1.45 ui-monospace, monospace;
+             border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+             color: var(--fg); padding: .5rem; resize: vertical; }
+  pre { background: var(--code); padding: .7rem; border-radius: 6px; max-height: 21rem;
+        overflow: auto; font: 12px/1.45 ui-monospace, monospace; margin: .6rem 0 0; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .8rem; }
+  label { display: inline-flex; gap: .3rem; align-items: center; }
+  label.grow { display: block; font-size: .85rem; color: var(--muted); }
+  .err { color: var(--danger); }
+  .err[hidden] { display: none; }
+  input.invalid { border-color: var(--danger); }
+  select.route { max-width: 15rem; padding: .15rem .3rem; }
+  .sev { margin: .9rem 0 .3rem; font-size: .78rem; text-transform: uppercase;
+         letter-spacing: .03em; font-weight: 600; }
+  .sev.conflict { color: var(--danger); }
+  .sev.sleeping, .sev.duplicate { color: var(--muted); }
+  .pair { border: 1px solid var(--line); border-radius: 8px; padding: .5rem .6rem;
+          margin-bottom: .5rem; }
+  .pair h3 { font-size: .9rem; margin: 0 0 .3rem; font-weight: 600; }
+  .pair .items { font: 12px/1.5 ui-monospace, monospace; color: var(--muted);
+                 max-height: 8rem; overflow: auto; margin-bottom: .4rem; }
+  #overlapBody { max-height: 26rem; overflow: auto; }
+  .warn { cursor: pointer; }
+  #selftest { padding: 1.2rem; font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap; }
+</style>
+
+<main>
+  <div id="toolbar">
+    <strong>keendns manager</strong>
+    <button id="new">Новый список</button>
+    <button id="backup">Бэкап</button>
+    <button id="overlapBtn">Пересечения</button>
+    <button id="journalBtn">Журнал</button>
+    <button id="reload">Обновить</button>
+    <span class="muted" id="status">загрузка…</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:2rem"><input type="checkbox" id="all"></th>
+        <th>Список</th>
+        <th class="num">Записей</th>
+        <th>Шарды</th>
+        <th style="width:3rem">Вкл</th>
+        <th>Интерфейс</th>
+        <th style="width:7rem">Добавлять автоматически</th>
+        <th style="width:7rem">Эксклюзивный маршрут</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="muted" id="empty" hidden>Списков нет. «Новый список» — чтобы создать первый.</p>
+</main>
+
+<div id="bulk" hidden>
+  <span id="chosen" class="muted"></span>
+  <select id="target"></select>
+  <label title="Добавлять автоматически"><input type="checkbox" id="auto" checked> авто</label>
+  <label title="Эксклюзивный маршрут"><input type="checkbox" id="reject"> эксклюзивный</label>
+  <button class="primary" id="setgw">Назначить интерфейс</button>
+  <button id="unsetgw">Снять маршрут</button>
+  <button id="compactBtn">Уплотнить</button>
+  <button class="danger" id="drop">Удалить</button>
+</div>
+
+<dialog id="editor">
+  <h2 id="editorTitle"></h2>
+  <div class="row" style="margin:.7rem 0 .2rem">
+    <label class="grow">Название списка
+      <input type="text" id="listName" autocomplete="off" spellcheck="false"
+             placeholder="например, youtube" style="width:100%;margin-top:.25rem">
+    </label>
+  </div>
+  <p class="err" id="editorErr" hidden></p>
+  <p class="muted" id="editorHint"></p>
+  <textarea id="entries" spellcheck="false"></textarea>
+  <div class="row">
+    <input type="file" id="file" accept=".txt,.list,text/plain">
+    <span class="muted" id="editorCount"></span>
+    <span class="grow"></span>
+    <button id="editorCancel">Отмена</button>
+    <button class="primary" id="editorSave">Сохранить</button>
+  </div>
+</dialog>
+
+<dialog id="overlaps">
+  <h2>Пересечения списков</h2>
+  <p class="muted">Роутер включает все субдомены записи автоматически, поэтому
+    более общая запись в другом списке молча перекрывает узкую. То же с
+    вложенными подсетями.</p>
+  <div id="overlapBody"></div>
+  <div class="row">
+    <span class="grow"></span>
+    <button class="primary" id="overlapClose">Закрыть</button>
+  </div>
+</dialog>
+
+<dialog id="journal">
+  <h2>Журнал</h2>
+  <p class="muted">Что отправлено на роутер, что он ответил и что показало
+    следующее чтение. Живёт до перезагрузки страницы.</p>
+  <pre id="journalBody"></pre>
+  <div class="row">
+    <span class="grow"></span>
+    <button id="journalCopy">Скопировать</button>
+    <button id="journalClear">Очистить</button>
+    <button class="primary" id="journalClose">Закрыть</button>
+  </div>
+</dialog>
+
+<dialog id="plan">
+  <h2>План изменений</h2>
+  <p class="muted" id="planCount"></p>
+  <pre id="planBody"></pre>
+  <div class="row">
+    <span class="grow err" id="planErr"></span>
+    <button id="planCancel">Отмена</button>
+    <button class="primary" id="planApply">Применить</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+// =========================================================== pure core
+// Testable without a router: open with ?selftest to run the checks below.
+//
+// Router model, confirmed on KeeneticOS 5.1.3 (Netcraze Ultra):
+//   object-group fqdn domain-listN            — the list, addressed by id
+//   ...  description "youtube_2"              — the human name lives here
+//   ...  include <domain|ip|cidr>             — one entry
+//   dns-proxy route object-group <id> <iface> [auto] [reject]
+//   no dns-proxy route object-group <id> <iface>   — no flags on removal
+// Re-issuing a route ADDS a second one, so switching a gateway must remove first.
+
+const SHARD_RE = /^(.*)_(\d+)$/;
+
+function shardBase(label) {
+  const m = SHARD_RE.exec(label);
+  return m ? m[1] : label;
+}
+
+function shardIndex(label) {
+  const m = SHARD_RE.exec(label);
+  return m ? +m[2] : 1;
+}
+
+function shardLabel(base, index, only) {
+  return only ? base : base + "_" + index;
+}
+
+// Fold raw groups into logical lists: "yt_1", "yt_2" are shards of "yt".
+function groupLists(groups) {
+  const lists = new Map();
+  for (const g of groups) {
+    const base = shardBase(g.label);
+    if (!lists.has(base)) lists.set(base, []);
+    lists.get(base).push(g);
+  }
+  for (const shards of lists.values()) {
+    shards.sort((a, b) => shardIndex(a.label) - shardIndex(b.label));
+  }
+  return lists;
+}
+
+// Empty string means the name is fine; anything else is the message to show.
+function nameError(name, takenBases, currentBase) {
+  if (!name) return "Задай название списка";
+  if (name !== currentBase && takenBases.includes(name)) return "Список «" + name + "» уже есть";
+  // "yt_4" next to an existing "yt" would silently become its fourth shard.
+  const m = SHARD_RE.exec(name);
+  if (m && takenBases.includes(m[1]) && m[1] !== currentBase) {
+    return "Такое имя станет шардом списка «" + m[1] + "». Выбери другое";
+  }
+  return "";
+}
+
+// Smallest free domain-listN, matching how the router names them itself.
+function nextGroupId(taken) {
+  const used = new Set([...taken].map((id) => {
+    const m = /^domain-list(\d+)$/.exec(id);
+    return m ? +m[1] : -1;
+  }));
+  let i = 0;
+  while (used.has(i)) i++;
+  return "domain-list" + i;
+}
+
+// Lay entries over shards, keeping settled ones where they already are: only
+// genuinely new entries move, into the first shard with room and then into
+// fresh ones. Re-sorting everything would rewrite every shard whenever a single
+// domain is added at the top.
+function reshard(existing, wanted, limit, base, allocId) {
+  const want = new Set(wanted);
+  const kept = existing.map((s) => ({
+    id: s.id,
+    label: s.label,
+    entries: s.entries.filter((e) => want.has(e)),
+  }));
+  const placed = new Set(kept.flatMap((s) => s.entries));
+  const usedIndex = new Set(kept.map((s) => shardIndex(s.label)));
+
+  for (const entry of wanted) {
+    if (placed.has(entry)) continue;
+    let slot = kept.find((s) => s.entries.length < limit);
+    if (!slot) {
+      let i = 1;
+      while (usedIndex.has(i)) i++;
+      usedIndex.add(i);
+      slot = { id: allocId(), label: shardLabel(base, i, false), entries: [] };
+      kept.push(slot);
+    }
+    slot.entries.push(entry);
+  }
+
+  const out = kept.filter((s, i) => s.entries.length > 0 || i === 0);
+  return relabel(out, base);
+}
+
+// A single shard carries the plain name; several carry base_1, base_2, …
+function relabel(shards, base) {
+  const only = shards.length === 1;
+  return shards.map((s) => ({
+    id: s.id,
+    label: shardLabel(base, shardIndex(s.label), only),
+    entries: s.entries,
+  }));
+}
+
+// Repack densely, dropping holes left by deletions.
+function compactShards(shards, limit, base, allocId) {
+  const entries = shards.flatMap((s) => s.entries);
+  const count = Math.max(1, Math.ceil(entries.length / limit));
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const existing = shards[i];
+    out.push({
+      id: existing ? existing.id : allocId(),
+      label: shardLabel(base, i + 1, count === 1),
+      entries: entries.slice(i * limit, (i + 1) * limit),
+    });
+  }
+  return out;
+}
+
+function quote(value) {
+  return /[\s"]/.test(value) ? JSON.stringify(value) : value;
+}
+
+function routeTail(route) {
+  const parts = [];
+  if (route.gateway) parts.push(route.gateway);
+  if (route.interface) parts.push(route.interface);
+  return parts.join(" ");
+}
+
+// The router takes "reject" only alongside "auto" — an exclusive route without
+// automatic addition is not a state it will hold, so it is never asked for.
+function normalizeRoute(route) {
+  if (!route || route.auto) return route;
+  return Object.assign({}, route, { reject: false });
+}
+
+function addRoute(id, route) {
+  const r = normalizeRoute(route);
+  const flags = (r.auto ? " auto" : "") + (r.reject ? " reject" : "");
+  return "dns-proxy route object-group " + quote(id) + " " + routeTail(r) + flags;
+}
+
+// Removal takes the target but rejects the flags: "no such command: auto".
+function delRoute(id, route) {
+  return "no dns-proxy route object-group " + quote(id) + " " + routeTail(route);
+}
+
+function sameRoute(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.interface === b.interface && (a.gateway || "") === (b.gateway || "") &&
+         !!a.auto === !!b.auto && !!a.reject === !!b.reject && !!a.disabled === !!b.disabled;
+}
+
+// Enabling/disabling is not expressible in CLI ("no such command: disable"), so
+// it goes as an RCI tree instead. A plan step is therefore either a plain CLI
+// string or {label, tree}.
+//
+// The rule MUST be addressed by its index. Addressing it by object-group and
+// interface is accepted with a cheerful "enabled the DNS route rule N" and then
+// applied to the LAST rule in the list instead — which silently toggles someone
+// else's route and leaves the intended one untouched.
+function toggleStep(shard, enabled) {
+  const index = shard.route && shard.route.index;
+  return {
+    label: (enabled ? "# включить" : "# выключить") + " правило " +
+           (index ? index.slice(0, 8) : "?") + " (" + shard.label + ")",
+    tree: { "dns-proxy": { route: { index: index, disable: !enabled } } },
+  };
+}
+
+const stepLabel = (step) => (typeof step === "string" ? step : step.label);
+const stepPayload = (step) => (typeof step === "string" ? { parse: step } : step.tree);
+
+// A tree that carries settings rather than a command always answers with
+// "no input" next to the real result — harmless noise that would otherwise read
+// as a failed toggle.
+const NO_INPUT = "7471107";
+
+// Every status the router reported, successes included — the journal needs to
+// show what actually happened, not just what went wrong.
+function statusMessages(result) {
+  const out = [];
+  (function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (Array.isArray(node.status)) {
+      for (const s of node.status) {
+        if (!s || String(s.code) === NO_INPUT) continue;
+        out.push("[" + s.status + "] " + (s.message || s.code));
+      }
+    }
+    Object.values(node).forEach(walk);
+  })(result);
+  return out;
+}
+
+function statusErrors(result) {
+  const bad = [];
+  (function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (Array.isArray(node.status)) {
+      for (const s of node.status) {
+        if (s && s.status === "error" && String(s.code) !== NO_INPUT) bad.push(s.message || s.code);
+      }
+    }
+    Object.values(node).forEach(walk);
+  })(result);
+  return bad;
+}
+
+// Turn "shards before" + "shards after" into the commands that get there.
+function planCommands(before, after, route) {
+  const cmds = [];
+  const old = new Map(before.map((s) => [s.id, s]));
+  const kept = new Set(after.map((s) => s.id));
+
+  for (const shard of after) {
+    const was = old.get(shard.id);
+    if (!was) cmds.push("object-group fqdn " + quote(shard.id));
+    if (!was || was.label !== shard.label) {
+      cmds.push("object-group fqdn " + quote(shard.id) + " description " + quote(shard.label));
+    }
+    const had = new Set(was ? was.entries : []);
+    const has = new Set(shard.entries);
+    for (const e of (was ? was.entries : [])) {
+      if (!has.has(e)) cmds.push("no object-group fqdn " + quote(shard.id) + " include " + quote(e));
+    }
+    for (const e of shard.entries) {
+      if (!had.has(e)) cmds.push("object-group fqdn " + quote(shard.id) + " include " + quote(e));
+    }
+    if (route && !was) cmds.push(addRoute(shard.id, route));
+  }
+
+  for (const shard of before) {
+    if (kept.has(shard.id)) continue;
+    if (route) cmds.push(delRoute(shard.id, route));
+    cmds.push("no object-group fqdn " + quote(shard.id));
+  }
+  return cmds;
+}
+
+// Switching a gateway: drop the old route before adding the new one, otherwise
+// the router keeps both.
+// Only the CLI half: a rebuilt route always comes back enabled, and its index
+// changes, so restoring "switched off" has to happen afterwards, against freshly
+// read indexes. See applyRetarget.
+function retargetCommands(list, next) {
+  const cmds = [];
+  const wanted = normalizeRoute(
+    Object.assign({}, next, { disabled: !!(list.route && list.route.disabled) }));
+  if (sameRoute(list.route, wanted)) return cmds;
+  for (const shard of list.shards) {
+    if (shard.route) cmds.push(delRoute(shard.id, shard.route));
+    if (next) cmds.push(addRoute(shard.id, next));
+  }
+  return cmds;
+}
+
+// ----------------------------------------------------------- overlaps
+// The router includes every subdomain of an entry automatically, so "x.com" in
+// one list quietly swallows "grok.x.com" in another. Same for a subnet that
+// contains another. Neither is visible by comparing strings, which is exactly
+// what makes it worth detecting.
+
+const IPV4_CIDR = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?$/;
+
+function parseNet(value) {
+  const m = IPV4_CIDR.exec(value.trim());
+  if (!m) return null;
+  const octets = m.slice(1, 5).map(Number);
+  if (octets.some((o) => o > 255)) return null;
+  const bits = m[5] === undefined ? 32 : Number(m[5]);
+  if (bits > 32) return null;
+  const addr = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return { base: (addr & mask) >>> 0, bits: bits };
+}
+
+function netContains(outer, inner) {
+  if (outer.bits > inner.bits) return false;
+  const mask = outer.bits === 0 ? 0 : (0xffffffff << (32 - outer.bits)) >>> 0;
+  return ((inner.base & mask) >>> 0) === outer.base;
+}
+
+// "grok.x.com" -> ["grok.x.com", "x.com", "com"]: every name that would cover it.
+function coveringNames(name) {
+  const parts = name.split(".");
+  const out = [];
+  for (let i = 0; i < parts.length; i++) out.push(parts.slice(i).join("."));
+  return out;
+}
+
+const cleanEntry = (value) => String(value).trim().toLowerCase().replace(/\.+$/, "");
+
+function routeState(route) {
+  if (!route) return "none";
+  return route.disabled ? "off" : route.interface || "?";
+}
+
+// conflict: both live, different interfaces — routing is actually contested.
+// duplicate: both live on the same interface — harmless, just untidy.
+// sleeping: one side has no route or is switched off — a mine, not a fire.
+function severityOf(a, b) {
+  const sa = routeState(a), sb = routeState(b);
+  if (sa === "none" || sb === "none" || sa === "off" || sb === "off") return "sleeping";
+  return sa === sb ? "duplicate" : "conflict";
+}
+
+const SEVERITY_ORDER = { conflict: 0, sleeping: 1, duplicate: 2 };
+
+function findOverlaps(lists) {
+  const byName = new Map();   // exact name -> occurrences
+  const nets = [];
+
+  for (const list of lists) {
+    for (const shard of list.shards) {
+      for (const entry of shard.entries) {
+        const value = cleanEntry(entry);
+        const net = parseNet(value);
+        const where = { base: list.base, shard: shard.id, value: entry };
+        if (net) {
+          nets.push({ net: net, where: where });
+        } else {
+          if (!byName.has(value)) byName.set(value, []);
+          byName.get(value).push(where);
+        }
+      }
+    }
+  }
+
+  const pairs = new Map();
+  const routeOf = new Map(lists.map((l) => [l.base, l.route || null]));
+
+  const add = (x, y, kind, detail) => {
+    if (x.base === y.base) return;
+    const [first, second] = x.base < y.base ? [x, y] : [y, x];
+    const key = first.base + " " + second.base;
+    if (!pairs.has(key)) {
+      pairs.set(key, { a: first.base, b: second.base, aRoute: routeOf.get(first.base),
+                       bRoute: routeOf.get(second.base), items: [] });
+    }
+    const pair = pairs.get(key);
+    const aSide = first === x ? x : y;
+    const bSide = first === x ? y : x;
+    const seen = pair.items.some((i) => i.a.value === aSide.value && i.b.value === bSide.value);
+    if (!seen) pair.items.push({ a: aSide, b: bSide, kind: kind, detail: detail });
+  };
+
+  // Domains: walk each entry and look for a covering name elsewhere. Found once,
+  // from the narrower side, so a pair is not reported twice.
+  for (const [name, here] of byName) {
+    const covers = coveringNames(name);
+    for (let i = 0; i < covers.length; i++) {
+      const holders = byName.get(covers[i]);
+      if (!holders) continue;
+      for (const narrow of here) {
+        for (const wide of holders) {
+          if (i === 0 && narrow.base >= wide.base) continue;  // exact: report once
+          add(narrow, wide, i === 0 ? "exact" : "subdomain",
+              i === 0 ? name : name + " внутри " + covers[i]);
+        }
+      }
+    }
+  }
+
+  // Subnets: few enough that comparing every pair is fine.
+  for (let i = 0; i < nets.length; i++) {
+    for (let j = i + 1; j < nets.length; j++) {
+      const x = nets[i], y = nets[j];
+      if (x.where.base === y.where.base) continue;
+      const contains = netContains(x.net, y.net) || netContains(y.net, x.net);
+      if (!contains) continue;
+      const same = x.net.bits === y.net.bits && x.net.base === y.net.base;
+      // Read it the same way as domains: the narrower one sits inside the wider.
+      const [inner, outer] = x.net.bits >= y.net.bits ? [x, y] : [y, x];
+      add(x.where, y.where, same ? "exact" : "subnet",
+          same ? cleanEntry(x.where.value)
+               : cleanEntry(inner.where.value) + " внутри " + cleanEntry(outer.where.value));
+    }
+  }
+
+  return [...pairs.values()].map((p) => Object.assign(p, {
+    severity: severityOf(p.aRoute, p.bRoute),
+  })).sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity] ||
+                     y.items.length - x.items.length ||
+                     x.a.localeCompare(y.a));
+}
+
+// Everything to drop from one side of a pair.
+function removeOverlapCommands(pair, base) {
+  const side = pair.a === base ? "a" : "b";
+  const seen = new Set();
+  const cmds = [];
+  for (const item of pair.items) {
+    const ref = item[side];
+    const key = ref.shard + " " + ref.value;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cmds.push("no object-group fqdn " + quote(ref.shard) + " include " + quote(ref.value));
+  }
+  return cmds;
+}
+
+// =========================================================== selftest
+function selftest() {
+  const log = [];
+  let failed = false;
+  const eq = (label, got, want) => {
+    const a = JSON.stringify(got), b = JSON.stringify(want);
+    if (a === b) { log.push("ok   " + label); return; }
+    failed = true;
+    log.push("FAIL " + label + "\n  got  " + a + "\n  want " + b);
+  };
+  let counter = 100;
+  const alloc = () => "domain-list" + counter++;
+  const g = (id, label, entries) => ({ id, label, entries });
+  // a shard carrying a rule, as loadState builds it
+  const gr = (id, label, route) => ({ id, label, entries: [], route: route });
+
+  eq("groupLists folds yt_1..yt_3 under yt",
+     [...groupLists([g("d0", "yt_1", []), g("d1", "yt_2", []), g("d2", "tg", [])]).keys()],
+     ["yt", "tg"]);
+
+  eq("nameError rejects an empty name", nameError("", ["yt"], null), "Задай название списка");
+  eq("nameError rejects a name already in use",
+     nameError("yt", ["yt", "tg"], null), "Список «yt» уже есть");
+  eq("nameError lets a list keep its own name", nameError("yt", ["yt", "tg"], "yt"), "");
+  eq("nameError accepts a fresh name", nameError("netflix", ["yt"], null), "");
+  eq("nameError blocks a name that would become someone's shard",
+     nameError("yt_4", ["yt"], null),
+     "Такое имя станет шардом списка «yt». Выбери другое");
+  eq("nameError allows a numeric suffix when no such list exists",
+     nameError("list_2024", ["yt"], null), "");
+
+  eq("renaming relabels every shard",
+     planCommands([g("d0", "old_1", ["a"]), g("d1", "old_2", ["b"])],
+                  reshard([g("d0", "old_1", ["a"]), g("d1", "old_2", ["b"])],
+                          ["a", "b"], 1, "new", () => "dX"), null),
+     ["object-group fqdn d0 description new_1", "object-group fqdn d1 description new_2"]);
+
+  eq("nextGroupId picks the smallest free slot",
+     nextGroupId(["domain-list0", "domain-list1", "domain-list3"]), "domain-list2");
+
+  eq("reshard splits past the limit and names the shards",
+     reshard([], ["a", "b", "c"], 2, "l", alloc),
+     [g("domain-list100", "l_1", ["a", "b"]), g("domain-list101", "l_2", ["c"])]);
+
+  eq("reshard leaves a single shard unsuffixed",
+     reshard([], ["a"], 2, "l", alloc), [g("domain-list102", "l", ["a"])]);
+
+  eq("reshard keeps settled entries in place",
+     reshard([g("d0", "l_1", ["a", "b"]), g("d1", "l_2", ["c"])], ["z", "a", "b", "c"], 2, "l", alloc),
+     [g("d0", "l_1", ["a", "b"]), g("d1", "l_2", ["c", "z"])]);
+
+  eq("reshard drops emptied tail shards and renames what is left",
+     reshard([g("d0", "l_1", ["a", "b"]), g("d1", "l_2", ["c"])], ["a"], 2, "l", alloc),
+     [g("d0", "l", ["a"])]);
+
+  eq("reshard keeps the first shard even when emptied",
+     reshard([g("d0", "l", ["a"])], [], 2, "l", alloc), [g("d0", "l", [])]);
+
+  eq("compactShards repacks and reuses ids",
+     compactShards([g("d0", "l_1", ["a"]), g("d1", "l_2", ["b", "c"])], 2, "l", alloc),
+     [g("d0", "l_1", ["a", "b"]), g("d1", "l_2", ["c"])]);
+
+  eq("planCommands emits only the delta",
+     planCommands([g("d0", "l", ["a", "b"])], [g("d0", "l", ["b", "c"])], null),
+     ["no object-group fqdn d0 include a", "object-group fqdn d0 include c"]);
+
+  eq("planCommands creates, describes and routes a new shard",
+     planCommands([g("d0", "l", ["a"])],
+                  [g("d0", "l_1", ["a"]), g("d9", "l_2", ["b"])],
+                  { interface: "Wireguard0", auto: true }),
+     ["object-group fqdn d0 description l_1",
+      "object-group fqdn d9", "object-group fqdn d9 description l_2",
+      "object-group fqdn d9 include b",
+      "dns-proxy route object-group d9 Wireguard0 auto"]);
+
+  eq("planCommands unroutes before deleting a vanished shard",
+     planCommands([g("d0", "l_1", ["a"]), g("d1", "l_2", ["b"])],
+                  [g("d0", "l", ["a"])], { interface: "Wireguard0", auto: true }),
+     ["object-group fqdn d0 description l",
+      "no dns-proxy route object-group d1 Wireguard0", "no object-group fqdn d1"]);
+
+  eq("retarget removes the old route first, on every shard",
+     retargetCommands({ shards: [gr("d0", "l_1", { interface: "Wireguard7", auto: true, index: "aa" }),
+                                 gr("d1", "l_2", { interface: "Wireguard7", auto: true, index: "bb" })],
+                        route: { interface: "Wireguard7", auto: true } },
+                      { interface: "Wireguard8", auto: true, reject: true }),
+     ["no dns-proxy route object-group d0 Wireguard7",
+      "dns-proxy route object-group d0 Wireguard8 auto reject",
+      "no dns-proxy route object-group d1 Wireguard7",
+      "dns-proxy route object-group d1 Wireguard8 auto reject"]);
+
+  // The off-state is restored in a second pass (applyRetarget), because a
+  // rebuilt rule gets a new index that cannot be known in advance.
+  eq("retarget only rebuilds; it does not try to re-disable with a stale index",
+     retargetCommands({ shards: [gr("d0", "l", { interface: "W7", auto: true, disabled: true, index: "aa" })],
+                        route: { interface: "W7", auto: true, disabled: true } },
+                      { interface: "W8", auto: true }),
+     ["no dns-proxy route object-group d0 W7", "dns-proxy route object-group d0 W8 auto"]);
+
+  eq("flipping reject rebuilds the route keeping interface and auto",
+     retargetCommands({ shards: [gr("d0", "l", { interface: "W8", auto: true, reject: false, index: "aa" })],
+                        route: { interface: "W8", auto: true, reject: false } },
+                      { interface: "W8", auto: true, reject: true }),
+     ["no dns-proxy route object-group d0 W8",
+      "dns-proxy route object-group d0 W8 auto reject"]);
+
+  eq("turning auto off drops reject too — the router will not hold it alone",
+     retargetCommands({ shards: [gr("d0", "l", { interface: "W8", auto: true, reject: true, index: "aa" })],
+                        route: { interface: "W8", auto: true, reject: true } },
+                      { interface: "W8", auto: false, reject: true }),
+     ["no dns-proxy route object-group d0 W8", "dns-proxy route object-group d0 W8"]);
+
+  eq("addRoute never emits reject without auto",
+     addRoute("d0", { interface: "W8", auto: false, reject: true }),
+     "dns-proxy route object-group d0 W8");
+
+  // Addressing by object-group is accepted and then applied to the LAST rule,
+  // so the index is the only safe handle.
+  eq("toggleStep addresses the rule by index, not by group",
+     toggleStep(gr("d0", "netflix", { interface: "W8", auto: true, index: "aabbccdd11223344" }), true),
+     { label: "# включить правило aabbccdd (netflix)",
+       tree: { "dns-proxy": { route: { index: "aabbccdd11223344", disable: false } } } });
+
+  eq("toggleStep off carries the same index",
+     toggleStep(gr("d0", "apple", { interface: "W8", index: "abcdef0123456789" }), false),
+     { label: "# выключить правило abcdef01 (apple)",
+       tree: { "dns-proxy": { route: { index: "abcdef0123456789", disable: true } } } });
+
+  eq("statusErrors ignores the harmless no-input noise",
+     statusErrors([{ "dns-proxy": { route: {
+       status: [{ status: "error", code: "7471107", message: "no input." }],
+       disable: { status: [{ status: "message", message: "disabled the DNS route rule 14." }] } } } }]),
+     []);
+
+  eq("statusErrors still reports a real failure",
+     statusErrors([{ parse: { status: [{ status: "error", code: "7405602",
+                                         message: "argument parse error." }] } }]),
+     ["argument parse error."]);
+
+  eq("sameRoute separates enabled from disabled",
+     sameRoute({ interface: "W8", auto: true }, { interface: "W8", auto: true, disabled: true }), false);
+
+  eq("retarget creates a route where there was none, without a removal first",
+     retargetCommands({ shards: [gr("d0", "l_1", null), gr("d1", "l_2", null)], route: null },
+                      { interface: "W8", auto: true, reject: false }),
+     ["dns-proxy route object-group d0 W8 auto", "dns-proxy route object-group d1 W8 auto"]);
+
+  eq("retarget does nothing when the route already matches",
+     retargetCommands({ shards: [gr("d0", "l", { interface: "W0", auto: true, index: "aa" })],
+                        route: { interface: "W0", auto: true } },
+                      { interface: "W0", auto: true }), []);
+
+  eq("delRoute carries no flags", delRoute("d0", { interface: "W0", auto: true, reject: true }),
+     "no dns-proxy route object-group d0 W0");
+
+  eq("addRoute puts gateway before interface",
+     addRoute("d0", { gateway: "10.0.0.1", interface: "ISP", auto: true }),
+     "dns-proxy route object-group d0 10.0.0.1 ISP auto");
+
+  eq("quote wraps a description with spaces", quote("google meet"), '"google meet"');
+
+  // ---- overlaps ----
+  const lst = (base, entries, route) => ({
+    base: base, route: route || null,
+    shards: [{ id: "d_" + base, label: base, entries: entries, route: route || null }],
+  });
+  const W7 = { interface: "W7", auto: true };
+  const W8 = { interface: "W8", auto: true };
+  const brief = (pairs) => pairs.map((p) => p.severity + " " + p.a + "×" + p.b + ": " +
+                                      p.items.map((i) => i.kind + " " + i.detail).join(", "));
+
+  eq("no overlap when lists are disjoint",
+     findOverlaps([lst("a", ["x.com"], W7), lst("b", ["y.com"], W8)]), []);
+
+  eq("a subdomain hidden under a broader entry is a live conflict",
+     brief(findOverlaps([lst("ai", ["grok.x.com"], W7), lst("twitter", ["x.com"], W8)])),
+     ["conflict ai×twitter: subdomain grok.x.com внутри x.com"]);
+
+  eq("the same domain in two lists is reported once",
+     brief(findOverlaps([lst("ai", ["news.google.com"], W7), lst("news", ["news.google.com"], W8)])),
+     ["conflict ai×news: exact news.google.com"]);
+
+  eq("same interface on both sides is a duplicate, not a conflict",
+     brief(findOverlaps([lst("a", ["x.com"], W8), lst("b", ["x.com"], W8)])),
+     ["duplicate a×b: exact x.com"]);
+
+  eq("a list without a route only sleeps",
+     brief(findOverlaps([lst("yt", ["googlevideo.com"], W8), lst("yt_domains", ["googlevideo.com"], null)])),
+     ["sleeping yt×yt_domains: exact googlevideo.com"]);
+
+  eq("a switched-off route sleeps too",
+     brief(findOverlaps([lst("a", ["x.com"], W7),
+                         lst("b", ["x.com"], { interface: "W8", auto: true, disabled: true })])),
+     ["sleeping a×b: exact x.com"]);
+
+  eq("a containing subnet is found",
+     brief(findOverlaps([lst("torrents", ["104.24.0.0/14"], W8),
+                         lst("cloudflare", ["104.16.0.0/12"], W7)])),
+     ["conflict cloudflare×torrents: subnet 104.24.0.0/14 внутри 104.16.0.0/12"]);
+
+  eq("unrelated subnets are left alone",
+     findOverlaps([lst("a", ["10.0.0.0/8"], W7), lst("b", ["192.168.0.0/16"], W8)]), []);
+
+  eq("conflicts sort ahead of sleeping ones",
+     findOverlaps([lst("a", ["x.com"], null), lst("b", ["x.com"], W7),
+                   lst("c", ["x.com"], W8)]).map((p) => p.severity),
+     ["conflict", "sleeping", "sleeping"]);
+
+  eq("removing one side names that side's shard and entry",
+     removeOverlapCommands(
+       findOverlaps([lst("ai", ["grok.x.com"], W7), lst("twitter", ["x.com"], W8)])[0], "ai"),
+     ["no object-group fqdn d_ai include grok.x.com"]);
+
+  eq("removing the other side drops the broader entry",
+     removeOverlapCommands(
+       findOverlaps([lst("ai", ["grok.x.com"], W7), lst("twitter", ["x.com"], W8)])[0], "twitter"),
+     ["no object-group fqdn d_twitter include x.com"]);
+
+  eq("parseNet rejects nonsense and accepts a bare address",
+     [parseNet("300.1.1.1"), parseNet("nope.com"), !!parseNet("10.1.2.3")], [null, null, true]);
+
+  log.push(failed ? "\nFAILED" : "\nall passed");
+  return log.join("\n");
+}
+
+// =========================================================== router I/O
+async function rci(payload) {
+  const resp = await fetch("/api/rci", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await resp.json();
+  if (!resp.ok) throw new Error(body && body.error ? body.error : "RCI " + resp.status);
+  return body;
+}
+
+// Kept in memory only: what was sent, what the router answered, what the next
+// read showed. Enough to tell "the router refused" from "the router agreed and
+// then changed its mind".
+const journal = [];
+
+function note(text) {
+  journal.push(new Date().toLocaleTimeString() + "  " + text);
+  if (journal.length > 400) journal.shift();
+}
+
+const state = { version: "", interfaces: [], ifaceNames: new Map(), lists: [],
+                overlaps: [], ids: new Set(), selected: new Set() };
+const $ = (id) => document.getElementById(id);
+// Entries per object-group the router will hold. Not exposed in the UI: it is a
+// property of the firmware, not a preference. Change it here if a release moves
+// it — everything else follows.
+const LIMIT = 300;
+
+// "Home VPN (Wireguard0)" — the description first, the id kept for reference.
+function ifaceLabel(id) {
+  const name = state.ifaceNames.get(id);
+  return name && name !== id ? name + " (" + id + ")" : id;
+}
+
+async function loadState() {
+  const [version, ifaces, groups, dnsproxy] = await rci([
+    { show: { version: {} } },
+    { show: { interface: {} } },
+    { show: { rc: { "object-group": {} } } },
+    { show: { rc: { "dns-proxy": {} } } },
+  ]);
+
+  const v = (version && version.show && version.show.version) || {};
+  state.version = [v.title, v.description].filter(Boolean).join(" · ");
+
+  const fqdn = (groups && groups.show && groups.show.rc &&
+                groups.show.rc["object-group"] && groups.show.rc["object-group"].fqdn) || {};
+  const routeList = (dnsproxy && dnsproxy.show && dnsproxy.show.rc &&
+                     dnsproxy.show.rc["dns-proxy"] && dnsproxy.show.rc["dns-proxy"].route) || [];
+
+  const routes = new Map();
+  for (const r of [].concat(routeList)) {
+    if (!r || !r.group) continue;
+    if (!routes.has(r.group)) routes.set(r.group, []);
+    // index is what identifies the rule when toggling it; without it a toggle
+    // lands on the wrong route.
+    routes.get(r.group).push({ interface: r.interface || "", gateway: r.gateway || "",
+                               auto: !!r.auto, reject: !!r.reject, disabled: !!r.disable,
+                               index: r.index || "" });
+  }
+
+  // "global" marks the actual internet connections — the ones that can serve as
+  // a gateway. Anything already used by a route is kept too, so an unusual
+  // setup never loses its own interface from the list.
+  const inUse = new Set([...routes.values()].flat().map((r) => r.interface).filter(Boolean));
+  const ifaceMap = (ifaces && ifaces.show && ifaces.show.interface) || {};
+
+  // Names for display cover every interface, not just the gateway candidates:
+  // a route may point at something the filter below leaves out.
+  state.ifaceNames = new Map(Object.entries(ifaceMap)
+    .filter(([, i]) => i && typeof i === "object")
+    .map(([id, i]) => [i.id || id, i.description || i["interface-name"] || ""]));
+
+  state.interfaces = Object.entries(ifaceMap)
+    .filter(([id, i]) => i && typeof i === "object" && (i.global === true || inUse.has(i.id || id)))
+    .map(([id, i]) => ({ id: i.id || id, label: i.description || i["interface-name"] || i.id || id }))
+    .sort((a, b) => a.label.localeCompare(b.label, "ru"));
+
+  state.ids = new Set(Object.keys(fqdn));
+  const raw = Object.entries(fqdn).map(([id, g]) => ({
+    id,
+    label: g.description || id,
+    entries: [].concat(g.include || []).map((e) => (typeof e === "string" ? e : e.address)).filter(Boolean),
+  }));
+
+  state.lists = [...groupLists(raw)].map(([base, shards]) => {
+    // Each shard carries its own rule, index included — that is what toggling
+    // and removal are aimed at.
+    for (const shard of shards) shard.route = (routes.get(shard.id) || [])[0] || null;
+    const all = shards.flatMap((s) => routes.get(s.id) || []);
+    return {
+      base,
+      shards,
+      route: all[0] || null,
+      // How many route rows the router actually holds for these shards: more
+      // than one per shard means duplicates, which read as flapping state.
+      rows: all.length,
+      // Several shards pointing at different gateways, or a group carrying two
+      // routes at once — surfaced rather than silently averaged away.
+      mixed: all.length > 0 && (all.length !== shards.length || !all.every((r) => sameRoute(r, all[0]))),
+    };
+  }).sort((a, b) => a.base.localeCompare(b.base, "ru"));
+
+  state.overlaps = findOverlaps(state.lists);
+}
+
+// =========================================================== rendering
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+const SEV_WORD = { conflict: "конфликт", sleeping: "спит", duplicate: "дубль" };
+
+const overlapsOf = (base) => state.overlaps.filter((p) => p.a === base || p.b === base);
+
+// A count next to the name, red only when routing is actually contested.
+function overlapTag(list) {
+  const pairs = overlapsOf(list.base);
+  if (!pairs.length) return null;
+  const entries = new Set();
+  let worst = "duplicate";
+  for (const pair of pairs) {
+    const side = pair.a === list.base ? "a" : "b";
+    for (const item of pair.items) entries.add(item[side].value);
+    if (SEVERITY_ORDER[pair.severity] < SEVERITY_ORDER[worst]) worst = pair.severity;
+  }
+  const el = tag("⚠ " + entries.size, worst === "conflict" ? "full" : "");
+  el.classList.add("warn");
+  el.title = "перекрытий: " + entries.size + " (" + SEV_WORD[worst] + ") — открыть отчёт";
+  el.onclick = (e) => { e.stopPropagation(); openOverlaps(); };
+  return el;
+}
+
+function routeWord(route) {
+  if (!route) return "нет маршрута";
+  return ifaceLabel(route.interface) + (route.disabled ? " (выключен)" : "");
+}
+
+function openOverlaps() {
+  const body = $("overlapBody");
+  body.innerHTML = "";
+  if (!state.overlaps.length) {
+    body.innerHTML = '<p class="muted">Пересечений нет — ни одна запись не перекрыта другим списком.</p>';
+  }
+  let shown = "";
+  for (const pair of state.overlaps) {
+    if (pair.severity !== shown) {
+      shown = pair.severity;
+      const head = document.createElement("div");
+      head.className = "sev " + pair.severity;
+      head.textContent = {
+        conflict: "конфликты — оба маршрута активны, интерфейсы разные",
+        sleeping: "спящие — у одной стороны маршрута нет или он выключен",
+        duplicate: "дубли — один и тот же интерфейс, вреда нет",
+      }[pair.severity];
+      body.append(head);
+    }
+    body.append(pairCard(pair));
+  }
+  $("overlaps").showModal();
+}
+
+function pairCard(pair) {
+  const card = document.createElement("div");
+  card.className = "pair";
+
+  const title = document.createElement("h3");
+  title.textContent = pair.a + " → " + routeWord(pair.aRoute) + "   ×   " +
+                      pair.b + " → " + routeWord(pair.bRoute);
+  const items = document.createElement("div");
+  items.className = "items";
+  const lines = pair.items.slice(0, 12).map((i) => i.detail);
+  if (pair.items.length > lines.length) lines.push("… и ещё " + (pair.items.length - lines.length));
+  items.textContent = lines.join("\n");
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.marginTop = "0";
+  for (const base of [pair.a, pair.b]) {
+    const side = pair.a === base ? "a" : "b";
+    const count = new Set(pair.items.map((i) => i[side].value)).size;
+    const button = document.createElement("button");
+    button.textContent = "Убрать из " + base + " (" + count + ")";
+    button.onclick = () => {
+      $("overlaps").close();
+      showPlan(removeOverlapCommands(pair, base), openOverlaps);
+    };
+    row.append(button);
+  }
+  card.append(title, items, row);
+  return card;
+}
+
+// The route lives in a dropdown right in the row, so changing one list takes
+// one click instead of a checkbox plus the bulk panel.
+function routeCell(list) {
+  const sel = document.createElement("select");
+  sel.className = "route";
+  const options = ['<option value="">— нет —</option>'];
+
+  // A gateway route has no place in a list of interfaces; show it as it stands
+  // so its address is not silently hidden.
+  const viaGateway = !!(list.route && list.route.gateway);
+  if (viaGateway) {
+    options.push('<option value="__gw">' +
+      esc([list.route.gateway, list.route.interface].filter(Boolean).join(" · ")) + "</option>");
+  }
+  for (const i of state.interfaces) {
+    options.push('<option value="' + esc(i.id) + '">' + esc(ifaceLabel(i.id)) + "</option>");
+  }
+  // An interface a route points at but the gateway filter dropped.
+  if (list.route && list.route.interface && !viaGateway &&
+      !state.interfaces.some((i) => i.id === list.route.interface)) {
+    options.push('<option value="' + esc(list.route.interface) + '">' +
+      esc(ifaceLabel(list.route.interface)) + "</option>");
+  }
+  sel.innerHTML = options.join("");
+  sel.value = viaGateway ? "__gw" : (list.route ? list.route.interface : "");
+  if (list.route && list.route.disabled) sel.style.opacity = ".55";
+  sel.onchange = () => changeRoute(list, sel.value);
+
+  const td = document.createElement("td");
+  td.append(sel);
+  if (list.mixed) td.append(tag("шарды расходятся", "full"));
+  return td;
+}
+
+// A toggle cell, inert for a list that has no route to speak of — or when the
+// router would not hold the combination (blocked carries the reason).
+function switchCell(list, checked, apply, what, blocked) {
+  const reason = !list.route ? "маршрута нет" : blocked || "";
+  const sw = document.createElement("input");
+  sw.type = "checkbox";
+  sw.className = "sw";
+  sw.disabled = !!reason;
+  sw.checked = checked;
+  sw.title = reason || what + (checked ? ": включено" : ": выключено");
+  sw.onchange = () => apply(sw.checked);
+  const td = document.createElement("td");
+  td.append(sw);
+  return td;
+}
+
+function tag(text, cls) {
+  const el = document.createElement("span");
+  el.className = "tag" + (cls ? " " + cls : "");
+  el.textContent = text;
+  return el;
+}
+
+function render() {
+  const entries = state.lists.reduce((n, l) => n + l.shards.reduce((m, s) => m + s.entries.length, 0), 0);
+  $("status").textContent = [state.version, state.lists.length + " списков",
+                             entries + " записей"].filter(Boolean).join(" · ");
+
+  const target = $("target");
+  const keep = target.value;
+  target.innerHTML = '<option value="">— интерфейс —</option>' +
+    state.interfaces.map((i) => '<option value="' + esc(i.id) + '">' +
+      esc(ifaceLabel(i.id)) + "</option>").join("");
+  target.value = keep;
+
+  const rows = $("rows");
+  rows.innerHTML = "";
+  for (const list of state.lists) {
+    const count = list.shards.reduce((n, s) => n + s.entries.length, 0);
+    const tr = document.createElement("tr");
+
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = state.selected.has(list.base);
+    box.onchange = () => {
+      box.checked ? state.selected.add(list.base) : state.selected.delete(list.base);
+      renderBulk();
+    };
+    const tdBox = document.createElement("td");
+    tdBox.append(box);
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = list.base;
+    name.onclick = () => openEditor(list);
+    const tdName = document.createElement("td");
+    tdName.append(name);
+    const warn = overlapTag(list);
+    if (warn) tdName.append(warn);
+
+    const tdCount = document.createElement("td");
+    tdCount.className = "num";
+    tdCount.textContent = count;
+
+    const tdShards = document.createElement("td");
+    tdShards.className = "shards";
+    tdShards.textContent = list.shards.length === 1 ? "—"
+      : list.shards.map((s) => s.entries.length).join(" + ");
+    // A shard at the limit is normal — the next one gets created on its own.
+    // A shard *over* the limit is not: it means the limit was lowered since,
+    // and "Уплотнить" is needed to repack.
+    if (list.shards.some((s) => s.entries.length > LIMIT)) {
+      tdShards.append(tag("больше лимита", "full"));
+    }
+
+    const tdSwitch = switchCell(list, !!list.route && !list.route.disabled,
+      (on) => toggleRoute(list, on), "маршрут");
+    const tdAuto = switchCell(list, !!list.route && !!list.route.auto,
+      (on) => toggleFlag(list, "auto", on), "добавление маршрута автоматически");
+    const tdReject = switchCell(list, !!list.route && !!list.route.reject,
+      (on) => toggleFlag(list, "reject", on), "эксклюзивный маршрут",
+      list.route && !list.route.auto ? "требует «Добавлять автоматически»" : null);
+
+    const tdRoute = routeCell(list);
+
+    tr.append(tdBox, tdName, tdCount, tdShards, tdSwitch, tdRoute, tdAuto, tdReject);
+    rows.append(tr);
+  }
+  $("empty").hidden = state.lists.length > 0;
+  renderBulk();
+}
+
+function renderBulk() {
+  const n = state.selected.size;
+  $("bulk").hidden = n === 0;
+  $("chosen").textContent = "выбрано: " + n;
+  $("all").checked = n > 0 && n === state.lists.length;
+}
+
+// =========================================================== editing
+let editing = null;
+
+// Lists elsewhere often carry "*.example.com"; the router includes subdomains
+// on its own and rejects the star, so it is stripped rather than refused.
+function parseEntries(text) {
+  const seen = new Set();
+  const out = [];
+  for (let line of text.split(/\r?\n/)) {
+    line = line.replace(/#.*$/, "").trim().replace(/^\*\./, "").replace(/^\.+/, "");
+    if (!line || /\s/.test(line) || seen.has(line)) continue;
+    seen.add(line);
+    out.push(line);
+  }
+  return out;
+}
+
+function openEditor(list) {
+  editing = list;
+  const entries = list ? list.shards.flatMap((s) => s.entries) : [];
+  $("editorTitle").textContent = list ? "Правка списка" : "Новый список";
+  $("editorHint").textContent = list
+    ? "домены всех шардов сразу (" + list.shards.length + "); раскладка по " +
+      LIMIT + " пересчитается при сохранении"
+    : "по одному домену, IP или подсети в строке";
+  $("listName").value = list ? list.base : "";
+  $("entries").value = entries.join("\n");
+  $("file").value = "";
+  clearEditorError();
+  updateCount();
+  $("editor").showModal();
+  $("listName").focus();
+}
+
+function showEditorError(message) {
+  $("editorErr").textContent = message;
+  $("editorErr").hidden = false;
+  $("listName").classList.add("invalid");
+  $("listName").focus();
+}
+
+function clearEditorError() {
+  $("editorErr").hidden = true;
+  $("listName").classList.remove("invalid");
+}
+
+function updateCount() {
+  const n = parseEntries($("entries").value).length;
+  const shards = Math.max(1, Math.ceil(n / LIMIT));
+  $("editorCount").textContent = n + " записей → " + shards + (shards === 1 ? " список" : " шарда(ов)");
+}
+
+function saveEditor() {
+  const name = $("listName").value.trim();
+  const problem = nameError(name, state.lists.map((l) => l.base), editing && editing.base);
+  if (problem) { showEditorError(problem); return; }
+
+  const list = editing || { base: name, shards: [], route: null };
+  const wanted = parseEntries($("entries").value);
+  const taken = new Set(state.ids);
+  const alloc = () => { const id = nextGroupId(taken); taken.add(id); return id; };
+
+  // Renaming falls out of resharding for free: the shards get relabelled under
+  // the new base, and planCommands turns that into description commands.
+  const after = reshard(list.shards, wanted, LIMIT, name, alloc);
+  $("editor").close();
+  showPlan(planCommands(list.shards, after, list.route));
+}
+
+// =========================================================== bulk actions
+const chosen = () => state.lists.filter((l) => state.selected.has(l.base));
+
+function bulkSetGateway() {
+  const iface = $("target").value;
+  if (!iface) {
+    $("status").innerHTML = '<span class="err">Сначала выбери интерфейс в списке слева</span>';
+    return;
+  }
+  const next = { interface: iface, gateway: "", auto: $("auto").checked, reject: $("reject").checked };
+  showPlan(chosen().flatMap((l) => retargetCommands(l, next)));
+}
+
+function bulkUnsetGateway() {
+  showPlan(chosen().flatMap((l) =>
+    l.shards.filter((s) => s.route).map((s) => delRoute(s.id, s.route))));
+}
+
+function bulkCompact() {
+  const taken = new Set(state.ids);
+  const alloc = () => { const id = nextGroupId(taken); taken.add(id); return id; };
+  showPlan(chosen().flatMap((l) =>
+    planCommands(l.shards, compactShards(l.shards, LIMIT, l.base, alloc), l.route)));
+}
+
+function bulkDrop() {
+  const lists = chosen();
+  if (!lists.length) return;
+  if (!confirm("Удалить целиком: " + lists.map((l) => l.base).join(", ") + "?")) return;
+  showPlan(lists.flatMap((l) => l.shards.flatMap((s) =>
+    (s.route ? [delRoute(s.id, s.route)] : []).concat("no object-group fqdn " + quote(s.id)))));
+}
+
+// =========================================================== applying
+let pending = [];
+// Where to go back to once the plan dialog is done — set when the plan was
+// opened from somewhere the user wants to keep working in.
+let planReturn = null;
+
+function showPlan(steps, comeBackTo) {
+  pending = steps;
+  planReturn = comeBackTo || null;
+  $("planErr").textContent = "";
+  $("planCount").textContent = steps.length
+    ? steps.length + " команд(ы) уйдёт на роутер, затем конфигурация сохранится"
+    : "изменений нет";
+  $("planBody").textContent = steps.map(stepLabel).join("\n") || "—";
+  $("planApply").disabled = steps.length === 0;
+  $("plan").showModal();
+}
+
+async function send(steps) {
+  const payload = steps.map(stepPayload);
+  payload.push({ system: { configuration: { save: {} } } });
+  for (const step of steps) note("→ " + stepLabel(step));
+  const result = await rci(payload);
+  for (const message of statusMessages(result)) note("← " + message);
+  const errors = statusErrors(result);
+  if (errors.length) throw new Error(errors.slice(0, 3).join(" | "));
+}
+
+async function applyPlan() {
+  $("planApply").disabled = true;
+  $("planErr").textContent = "";
+  try {
+    await send(pending);
+    $("plan").close();
+    state.selected.clear();
+    await refresh();
+    closePlan();
+  } catch (err) {
+    $("planErr").textContent = String(err.message || err);
+    $("planApply").disabled = false;
+  }
+}
+
+// Hand control back to wherever the plan was opened from, with data already
+// refreshed, so a report stays open across a change made from it.
+function closePlan() {
+  const back = planReturn;
+  planReturn = null;
+  if (back) back();
+}
+
+// One click, undone by the same click — toggles apply straight away instead of
+// opening the plan dialog for every switch.
+async function applyNow(steps, what, list) {
+  $("status").textContent = what;
+  note("== " + what + (list ? " «" + list.base + "» до: " + describeRoute(list.route) : ""));
+  try {
+    await send(steps);
+  } catch (err) {
+    note("!! " + (err.message || err));
+    $("status").innerHTML = '<span class="err">' + esc(err.message || err) + "</span>";
+    return;
+  }
+  await refresh();
+  if (!list) return;
+
+  const fresh = state.lists.find((l) => l.base === list.base);
+  const before = describeRoute(list.route);
+  const after = fresh ? describeRoute(fresh.route) : "списка нет";
+  note("   стало: " + after +
+       (fresh && fresh.rows > fresh.shards.length
+         ? "  ⚠ строк маршрута " + fresh.rows + " на " + fresh.shards.length + " шард(ов)" : ""));
+
+  // The router answered without an error, yet nothing moved. Worth saying out
+  // loud instead of letting the switch quietly snap back.
+  if (before === after) {
+    note("   ⚠ роутер принял команду, но состояние не изменилось");
+    $("status").innerHTML = '<span class="err">Роутер принял команду, но состояние не изменилось' +
+      " — смотри Журнал</span>";
+  }
+}
+
+function describeRoute(route) {
+  if (!route) return "маршрута нет";
+  return [route.gateway, route.interface].filter(Boolean).join(" ") +
+         (route.auto ? " auto" : "") + (route.reject ? " reject" : "") +
+         (route.disabled ? " ВЫКЛЮЧЕН" : " включён");
+}
+
+// Picking an interface in the row: create, move or drop the route. A brand new
+// route gets "auto", matching what the router's own page defaults to.
+function changeRoute(list, value) {
+  if (value === "__gw") return;
+  if (!value) {
+    return list.route
+      ? applyNow(list.shards.filter((s) => s.route).map((s) => delRoute(s.id, s.route)),
+                 "снимаю маршрут…", list)
+      : refresh();
+  }
+  const next = Object.assign({ auto: true, reject: false }, list.route,
+                             { interface: value, gateway: "" });
+  return applyRetarget(list, next, "меняю маршрут…");
+}
+
+const toggleRoute = (list, enabled) =>
+  applyNow(list.shards.filter((s) => s.route).map((s) => toggleStep(s, enabled)),
+           enabled ? "включаю…" : "выключаю…", list);
+
+// auto and reject do not budge from an RCI tree — only a rebuilt route takes
+// them, so this goes through the same rebuild as changing the interface.
+const toggleFlag = (list, flag, value) =>
+  applyRetarget(list, Object.assign({}, list.route, { [flag]: value }),
+                "меняю параметры маршрута…");
+
+// A rebuilt route comes back enabled under a fresh index, so a list that was
+// switched off is switched off again in a second pass — against the indexes read
+// after the rebuild, never against the old ones.
+async function applyRetarget(list, next, what) {
+  const keepOff = !!(list.route && list.route.disabled);
+  await applyNow(retargetCommands(list, next), what, list);
+  if (!keepOff) return;
+  const fresh = state.lists.find((l) => l.base === list.base);
+  const steps = fresh ? fresh.shards.filter((s) => s.route && !s.route.disabled)
+                             .map((s) => toggleStep(s, false)) : [];
+  if (steps.length) await applyNow(steps, "возвращаю выключение…", fresh);
+}
+
+async function refresh() {
+  $("status").textContent = "загрузка…";
+  try {
+    await loadState();
+    render();
+  } catch (err) {
+    $("status").innerHTML = '<span class="err">' + esc(err.message || err) + "</span>";
+  }
+}
+
+function downloadBackup() {
+  const dump = {
+    saved: new Date().toISOString(),
+    router: state.version,
+    lists: state.lists.map((l) => ({
+      name: l.base,
+      route: l.route,
+      shards: l.shards.map((s) => ({ id: s.id, label: s.label, entries: s.entries })),
+    })),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "keendns-" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "") + ".json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// =========================================================== wiring
+function boot() {
+  $("reload").onclick = refresh;
+  $("backup").onclick = downloadBackup;
+  $("new").onclick = () => openEditor(null);
+  $("all").onchange = (e) => {
+    state.selected = e.target.checked ? new Set(state.lists.map((l) => l.base)) : new Set();
+    render();
+  };
+  $("entries").oninput = updateCount;
+  $("listName").oninput = clearEditorError;
+  $("listName").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); saveEditor(); } };
+  $("editorCancel").onclick = () => $("editor").close();
+  $("editorSave").onclick = saveEditor;
+  $("file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const box = $("entries");
+    const text = (await file.text()).trim();
+    box.value = box.value.trim() ? box.value.trim() + "\n" + text : text;
+    updateCount();
+  };
+  $("overlapBtn").onclick = openOverlaps;
+  $("overlapClose").onclick = () => $("overlaps").close();
+  $("journalBtn").onclick = () => {
+    const body = $("journalBody");
+    body.textContent = journal.length ? journal.join("\n") : "пока ничего не менялось";
+    $("journal").showModal();
+    body.scrollTop = body.scrollHeight;
+  };
+  $("journalClose").onclick = () => $("journal").close();
+  $("journalClear").onclick = () => { journal.length = 0; $("journalBody").textContent = "очищено"; };
+  $("journalCopy").onclick = () => navigator.clipboard.writeText(journal.join("\n"));
+  $("planCancel").onclick = () => { $("plan").close(); closePlan(); };
+  $("planApply").onclick = applyPlan;
+  $("setgw").onclick = bulkSetGateway;
+  $("unsetgw").onclick = bulkUnsetGateway;
+  $("compactBtn").onclick = bulkCompact;
+  $("drop").onclick = bulkDrop;
+  refresh();
+}
+
+if (location.search.includes("selftest")) {
+  document.body.innerHTML = '<pre id="selftest"></pre>';
+  $("selftest").textContent = selftest();
+} else {
+  boot();
+}
+</script>

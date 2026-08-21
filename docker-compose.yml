@@ -1,0 +1,15 @@
+services:
+  keendns:
+    build: .
+    image: keendns-manager
+    container_name: keendns-manager
+    environment:
+      KEENETIC_HOST: ${KEENETIC_HOST:-192.168.1.1}
+      KEENETIC_USER: ${KEENETIC_USER:-admin}
+      # Required: there is no terminal in the container to ask for it.
+      KEENETIC_PASSWORD: ${KEENETIC_PASSWORD:?set KEENETIC_PASSWORD or put it in .env}
+    # Bound to loopback on purpose: anyone who reaches this port is already
+    # logged into the router.
+    ports:
+      - "127.0.0.1:8765:8765"
+    restart: unless-stopped
