@@ -6,9 +6,15 @@ COPY keendns.py keendns.html ./
 # Build contexts on SMB shares arrive as mode 700; nobody must be able to read them.
 RUN chmod 644 keendns.py keendns.html
 
+# Which lists mirror allow-domains lives in a small JSON file; a named volume
+# keeps it across rebuilds. A bind mount would be read-only for nobody.
+RUN mkdir /data && chown nobody /data
+VOLUME /data
+
 # Inside the container it must listen on all interfaces; publish the port to
 # 127.0.0.1 on the host so the manager is not exposed to the network.
 ENV KEENDNS_BIND=0.0.0.0 \
+    KEENDNS_STATE=/data/keendns-sync.json \
     KEENETIC_HOST=192.168.1.1 \
     KEENETIC_USER=admin \
     PYTHONUNBUFFERED=1

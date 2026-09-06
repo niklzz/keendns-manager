@@ -69,6 +69,7 @@
   label.grow { display: block; font-size: .85rem; color: var(--muted); }
   .err { color: var(--danger); }
   .err[hidden] { display: none; }
+  #syncLabel[hidden] { display: none; }
   input.invalid { border-color: var(--danger); }
   select.route { max-width: 15rem; padding: .15rem .3rem; }
   .sev { margin: .9rem 0 .3rem; font-size: .78rem; text-transform: uppercase;
@@ -138,6 +139,12 @@
   <textarea id="entries" spellcheck="false"></textarea>
   <div class="row">
     <input type="file" id="file" accept=".txt,.list,text/plain">
+    <select id="preset" title="Готовые списки из github.com/itdoginfo/allow-domains">
+      <option value="">Из allow-domains…</option>
+    </select>
+    <label id="syncLabel" hidden
+           title="Каждую ночь сервер сверит список с allow-domains и применит разницу"><input
+           type="checkbox" id="sync"> синхронизировать ежедневно</label>
     <span class="muted" id="editorCount"></span>
     <span class="grow"></span>
     <button id="editorCancel">Отмена</button>
@@ -628,6 +635,10 @@ function selftest() {
                           ["a", "b"], 1, "new", () => "dX"), null),
      ["object-group fqdn d0 description new_1", "object-group fqdn d1 description new_2"]);
 
+  eq("parseEntries survives allow-domains quirks",
+     parseEntries("wdfiles.com \n\n.ua\nyoutube.com\nyoutube.com\n*.x.com\n# note\na b\n"),
+     ["wdfiles.com", "ua", "youtube.com", "x.com"]);
+
   eq("nextGroupId picks the smallest free slot",
      nextGroupId(["domain-list0", "domain-list1", "domain-list3"]), "domain-list2");
 
@@ -839,7 +850,7 @@ function note(text) {
 }
 
 const state = { version: "", interfaces: [], ifaceNames: new Map(), lists: [],
-                overlaps: [], ids: new Set(), selected: new Set() };
+                overlaps: [], ids: new Set(), selected: new Set(), sync: {} };
 const $ = (id) => document.getElementById(id);
 // Entries per object-group the router will hold. Not exposed in the UI: it is a
 // property of the firmware, not a preference. Change it here if a release moves
@@ -853,6 +864,9 @@ function ifaceLabel(id) {
 }
 
 async function loadState() {
+  // Which lists mirror allow-domains — an older launcher without the endpoint
+  // must not take the page down with it.
+  const syncReq = fetch("/api/sync").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   const [version, ifaces, groups, dnsproxy] = await rci([
     { show: { version: {} } },
     { show: { interface: {} } },
@@ -922,6 +936,7 @@ async function loadState() {
   }).sort((a, b) => a.base.localeCompare(b.base, "ru"));
 
   state.overlaps = findOverlaps(state.lists);
+  state.sync = await syncReq;
 }
 
 // =========================================================== rendering
@@ -949,6 +964,39 @@ function overlapTag(list) {
   el.title = "перекрытий: " + entries.size + " (" + SEV_WORD[worst] + ") — открыть отчёт";
   el.onclick = (e) => { e.stopPropagation(); openOverlaps(); };
   return el;
+}
+
+// A list mirrored from allow-domains: the mark says so, the tooltip says how
+// the last night went, a click runs the sync right now.
+function syncTag(list) {
+  const info = state.sync[list.base];
+  if (!info) return null;
+  const bad = !!info.result && /ошибка|не влезло/.test(info.result);
+  const el = tag("⟳", bad ? "full" : "");
+  el.classList.add("warn");
+  el.title = "allow-domains/" + info.preset +
+    (info.last ? " · " + info.last + ": " + info.result : " · ещё не сверялся") +
+    " — синхронизировать сейчас";
+  el.onclick = (e) => { e.stopPropagation(); runSync(list.base); };
+  return el;
+}
+
+async function runSync(base) {
+  $("status").textContent = "сверяю «" + base + "» с allow-domains…";
+  try {
+    const resp = await fetch("/api/sync/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base }),
+    });
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "HTTP " + resp.status);
+    note("== синхронизация «" + base + "»: " + body[base]);
+    await refresh();
+    $("status").textContent = "«" + base + "»: " + body[base];
+  } catch (err) {
+    $("status").innerHTML = '<span class="err">' + esc(err.message || err) + "</span>";
+  }
 }
 
 function routeWord(route) {
@@ -1104,6 +1152,8 @@ function render() {
     tdName.append(name);
     const warn = overlapTag(list);
     if (warn) tdName.append(warn);
+    const mirror = syncTag(list);
+    if (mirror) tdName.append(mirror);
 
     const tdCount = document.createElement("td");
     tdCount.className = "num";
@@ -1146,6 +1196,10 @@ function renderBulk() {
 
 // =========================================================== editing
 let editing = null;
+// Preset picked in this dialog, or the one the list already mirrors.
+let editorPreset = null;
+// Bookkeeping to do once the plan from this dialog has actually been applied.
+let afterApply = null;
 
 // Lists elsewhere often carry "*.example.com"; the router includes subdomains
 // on its own and rejects the star, so it is stripped rather than refused.
@@ -1172,6 +1226,15 @@ function openEditor(list) {
   $("listName").value = list ? list.base : "";
   $("entries").value = entries.join("\n");
   $("file").value = "";
+  $("preset").value = "";
+  const info = list && state.sync[list.base];
+  editorPreset = info ? info.preset : null;
+  $("sync").checked = !!info;
+  $("syncLabel").hidden = !info;
+  if (info) {
+    $("editorHint").textContent += " · зеркало allow-domains/" + info.preset +
+      ": ночью ручные правки перезапишутся";
+  }
   clearEditorError();
   updateCount();
   $("editor").showModal();
@@ -1188,6 +1251,34 @@ function showEditorError(message) {
 function clearEditorError() {
   $("editorErr").hidden = true;
   $("listName").classList.remove("invalid");
+}
+
+function appendEntries(text) {
+  const box = $("entries");
+  text = text.trim();
+  box.value = box.value.trim() ? box.value.trim() + "\n" + text : text;
+  updateCount();
+}
+
+// Pull a ready-made list from allow-domains into the textarea. The launcher
+// does the download: it needs the same code for the nightly sync anyway.
+async function loadPreset(name) {
+  $("editorCount").textContent = "загрузка…";
+  try {
+    const resp = await fetch("/api/presets/" + encodeURIComponent(name));
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || "HTTP " + resp.status);
+    appendEntries(body.entries.join("\n"));
+    if (!$("listName").value.trim()) $("listName").value = name;
+    editorPreset = name;
+    $("sync").checked = true;
+    $("syncLabel").hidden = false;
+  } catch (err) {
+    updateCount();
+    $("editorErr").textContent = "Не удалось скачать «" + name + "»: " + (err.message || err) +
+      " — скачай .lst с GitHub и загрузи файлом";
+    $("editorErr").hidden = false;
+  }
 }
 
 function updateCount() {
@@ -1209,9 +1300,34 @@ function saveEditor() {
   // Renaming falls out of resharding for free: the shards get relabelled under
   // the new base, and planCommands turns that into description commands.
   const after = reshard(list.shards, wanted, LIMIT, name, alloc);
+
+  // Mirroring is recorded only once the router has the list: a cancelled plan
+  // must not leave the launcher syncing a list that was never created.
+  const mirrored = editing && state.sync[editing.base];
+  const wantSync = $("sync").checked && editorPreset;
+  afterApply = (wantSync || mirrored)
+    ? () => setSync(name, wantSync ? editorPreset : null, editing && editing.base)
+    : null;
   $("editor").close();
-  showPlan(planCommands(list.shards, after, list.route));
+  const steps = planCommands(list.shards, after, list.route);
+  if (!steps.length && afterApply) {
+    // Only the mirroring flag changed: nothing for the router, so no plan.
+    const done = afterApply;
+    afterApply = null;
+    done().then(refresh, (err) => {
+      $("status").innerHTML = '<span class="err">' + esc(err.message || err) + "</span>";
+    });
+    return;
+  }
+  showPlan(steps);
 }
+
+const setSync = (base, preset, was) =>
+  fetch("/api/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base, preset, was }),
+  }).then((r) => { if (!r.ok) throw new Error("sync " + r.status); });
 
 // =========================================================== bulk actions
 const chosen = () => state.lists.filter((l) => state.selected.has(l.base));
@@ -1281,6 +1397,10 @@ async function applyPlan() {
     await send(pending);
     $("plan").close();
     state.selected.clear();
+    if (afterApply) {
+      try { await afterApply(); } catch (err) { note("!! " + (err.message || err)); }
+      afterApply = null;
+    }
     await refresh();
     closePlan();
   } catch (err) {
@@ -1417,12 +1537,21 @@ function boot() {
   $("editorSave").onclick = saveEditor;
   $("file").onchange = async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-    const box = $("entries");
-    const text = (await file.text()).trim();
-    box.value = box.value.trim() ? box.value.trim() + "\n" + text : text;
-    updateCount();
+    if (file) appendEntries(await file.text());
   };
+  $("preset").onchange = (e) => {
+    const name = e.target.value;
+    e.target.value = "";
+    if (name) loadPreset(name);
+  };
+  fetch("/api/presets").then((r) => r.json()).then((catalog) => {
+    for (const [group, names] of Object.entries(catalog)) {
+      const og = document.createElement("optgroup");
+      og.label = group;
+      for (const [name, label] of Object.entries(names)) og.append(new Option(label, name));
+      $("preset").append(og);
+    }
+  }).catch(() => { $("preset").hidden = true; });
   $("overlapBtn").onclick = openOverlaps;
   $("overlapClose").onclick = () => $("overlaps").close();
   $("journalBtn").onclick = () => {
@@ -1434,7 +1563,7 @@ function boot() {
   $("journalClose").onclick = () => $("journal").close();
   $("journalClear").onclick = () => { journal.length = 0; $("journalBody").textContent = "очищено"; };
   $("journalCopy").onclick = () => navigator.clipboard.writeText(journal.join("\n"));
-  $("planCancel").onclick = () => { $("plan").close(); closePlan(); };
+  $("planCancel").onclick = () => { afterApply = null; $("plan").close(); closePlan(); };
   $("planApply").onclick = applyPlan;
   $("setgw").onclick = bulkSetGateway;
   $("unsetgw").onclick = bulkUnsetGateway;

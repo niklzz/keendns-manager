@@ -8,8 +8,17 @@ services:
       KEENETIC_USER: ${KEENETIC_USER:-admin}
       # Required: there is no terminal in the container to ask for it.
       KEENETIC_PASSWORD: ${KEENETIC_PASSWORD:?set KEENETIC_PASSWORD or put it in .env}
+      # The nightly allow-domains sync runs at KEENDNS_SYNC_HOUR local time —
+      # local to the container, hence TZ.
+      TZ: ${TZ:-Europe/Moscow}
+      KEENDNS_SYNC_HOUR: ${KEENDNS_SYNC_HOUR:-4}
     # Bound to loopback on purpose: anyone who reaches this port is already
     # logged into the router.
     ports:
       - "127.0.0.1:8765:8765"
+    volumes:
+      - keendns-data:/data
     restart: unless-stopped
+
+volumes:
+  keendns-data:
