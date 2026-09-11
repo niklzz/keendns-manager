@@ -30,6 +30,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "keendns.html")
 
 
+# Commands per /rci/ POST. 709 in one request is known to pass, 15000 (~1 MB)
+# is rejected by the router's SCGI as "content oversize".
+RCI_CHUNK = 500
+
+
 class Router:
     """RCI client: challenge auth, session cookie in memory, re-login on 401.
 
@@ -90,16 +95,32 @@ class Router:
         resp.read()
 
     def rci(self, payload):
-        """POST a command tree to /rci/, re-authenticating once if needed."""
-        data = json.dumps(payload).encode()
+        """POST a command tree to /rci/, re-authenticating once if needed.
+
+        A long command list goes in chunks of RCI_CHUNK under one lock: the
+        router rejects an oversized body ("content oversize") and after a few
+        of those bans the client IP for 15 minutes.
+        """
+        if not isinstance(payload, list) or len(payload) <= RCI_CHUNK:
+            with self.lock:
+                return self._post(payload)
+        # ponytail: a chunk that fails leaves the earlier ones applied and the
+        # config unsaved; the UI shows the error and a refresh shows the state.
+        out = []
         with self.lock:
-            try:
-                return self._request("/rci/", data).read()
-            except urllib.error.HTTPError as err:
-                if err.code != 401:
-                    raise
-            self.login()
+            for i in range(0, len(payload), RCI_CHUNK):
+                out.extend(json.loads(self._post(payload[i:i + RCI_CHUNK])))
+        return json.dumps(out).encode()
+
+    def _post(self, payload):
+        data = json.dumps(payload).encode()
+        try:
             return self._request("/rci/", data).read()
+        except urllib.error.HTTPError as err:
+            if err.code != 401:
+                raise
+        self.login()
+        return self._request("/rci/", data).read()
 
 
 LOG_FILE = None
@@ -426,6 +447,13 @@ def selftest():
     assert preset_catalog()["Сервисы"]["telegram"] == "telegram (домены + подсети)"
     assert preset_catalog()["Сервисы"]["youtube"] == "youtube"
     assert preset_catalog()["Сервисы"]["hetzner"] == "hetzner (подсети)"
+    # a long list is split into RCI_CHUNK-sized POSTs and the replies are joined back
+    router, seen = Router("h", "u", "p"), []
+    router._post = lambda p: (seen.append(len(p)), json.dumps([{"i": i} for i in p]))[1].encode()
+    n = RCI_CHUNK * 2 + 1
+    assert json.loads(router.rci(list(range(n)))) == [{"i": i} for i in range(n)]
+    assert seen == [RCI_CHUNK, RCI_CHUNK, 1]
+    assert json.loads(router.rci([1, 2])) == [{"i": 1}, {"i": 2}]
     print("selftest ok")
 
 
@@ -558,14 +586,21 @@ def main():
             "Password for {}@{}: ".format(args.user, host))
         try:
             router.login()
+            print("Authenticated on {}".format(host))
             break
         except RuntimeError as err:
             print(err)
             if env_password or attempt == 2:
                 sys.exit("Could not log in.")
         except OSError as err:
+            if env_password:
+                # Typically a container. The router may be rebooting or may have
+                # banned this host for 15 minutes; exiting would only turn that
+                # into a restart loop. rci() logs in on demand anyway.
+                print("Cannot reach {}: {} — serving anyway, will log in on the first request"
+                      .format(host, err))
+                break
             sys.exit("Cannot reach {}: {}".format(host, err))
-    print("Authenticated on {}".format(host))
 
     Handler.router = router
     Handler.sync = Sync(router, args.state)
